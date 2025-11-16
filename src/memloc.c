@@ -42,8 +42,11 @@ void *memloc(size_t incr) {
       return (void *)(block + 1);
     }
 
-    void *ret = sbrk(PAGE_SIZE);
-    heap_end = ret + PAGE_SIZE;
+    if (prev + 1 >= (Block *)heap_end) {
+      void *ret = sbrk(PAGE_SIZE);
+      heap_end = ret + PAGE_SIZE;
+    }
+
     block = prev + 1;
     block = (Block *)((void *)block + prev->payload_size);
     block->free = 0;
@@ -75,6 +78,12 @@ void visualize_memory_list(void) {
   }
 }
 
+struct test {
+  int bar;
+  char foo[25];
+  long xyz;
+};
+
 int main(void) {
   int *p = memloc(sizeof(int));
   printf("First allocation\n");
@@ -100,5 +109,17 @@ int main(void) {
   printf("Third allocation\n");
   visualize_memory_list();
   printf("\n");
+
+  printf("Size of this struct is: %zu\n", sizeof(struct test));
+  struct test *testing_struct = memloc(sizeof(*testing_struct));
+  printf("Fourth allocation\n");
+  visualize_memory_list();
+  printf("\n");
+
+  struct test *another = memloc(sizeof(*another));
+  printf("Fifth allocation\n");
+  visualize_memory_list();
+  printf("\n");
+
   return 0;
 };
