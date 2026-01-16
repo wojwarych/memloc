@@ -3,123 +3,83 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-uint16_t PAGE_SIZE = 4096;
+#define PAGE_SIZE 4096
 
 typedef struct Block {
-  int free;
-  size_t payload_size;
-  struct Block *next;
+  uint64_t header;
+  size_t data_size;
+  uint64_t footer;
 } Block;
 
-Block *memory_list = NULL;
-long long *heap_start = NULL;
-long long *heap_end = NULL;
+Block *heap_start = NULL;
+Block *top = NULL;
+
+Block *get_from_os(size_t data_size) {
+  Block *data = sbrk(0);
+
+  if (sbrk(data_size + sizeof(data->header) + sizeof(data->footer)) ==
+      (void *)-1) {
+    return NULL;
+  }
+  return data;
+}
 
 void *memloc(size_t incr) {
-  Block *prev = NULL;
-  Block *curr = memory_list;
+  // exceed size above possible nearest divisible by 8
+  // and do bitwise AND on NOT 7 to find nearest size
+  // of possible block round up to num divisble by 8
+  size_t data_size = (incr + sizeof(intptr_t) - 1) & ~(sizeof(intptr_t) - 1);
 
-  while (curr) {
-    if (incr <= curr->payload_size && curr->free) {
-      curr->free = 0;
-      void *addr = curr + 1;
-      return addr;
+  if (heap_start != NULL) {
+    void *heap_jump = heap_start;
+    while (heap_jump < sbrk(0)) {
+      Block *data = heap_jump;
+      if (((data->header & ~(~7)) == 0) && data_size <= data->data_size) {
+        return (void *)(&data->data_size);
+      }
+      heap_jump = heap_jump + data->header - 1;
     }
-    prev = curr;
-    curr = curr->next;
   }
 
-  if (!curr) {
-    Block *block;
-    if (!heap_start) {
-      heap_start = sbrk(0);
-      void *ret = sbrk(PAGE_SIZE);
-      heap_end = ret + PAGE_SIZE;
-      block = (Block *)heap_start;
-      block->free = 0;
-      block->payload_size = incr;
-      memory_list = block;
-      return (void *)(block + 1);
-    }
+  Block *data = get_from_os(data_size);
 
-    if (prev + 1 >= (Block *)heap_end) {
-      void *ret = sbrk(PAGE_SIZE);
-      heap_end = ret + PAGE_SIZE;
-    }
-
-    block = prev + 1;
-    block = (Block *)((void *)block + prev->payload_size);
-    block->free = 0;
-    block->payload_size = incr;
-    prev->next = block;
-    return (void *)(block + 1);
+  if (data == NULL) {
+    return NULL;
   }
 
-  return NULL;
-};
+  data->data_size = data_size;
+  data->header = (sizeof(data->header) + data_size + sizeof(data->footer) + 1);
+  data->footer = (sizeof(data->header) + data_size + sizeof(data->footer) + 1);
+
+  if (heap_start == NULL) {
+    heap_start = data;
+  }
+
+  return (void *)(&data->data_size);
+}
 
 void freeloc(void *ptr) {
   if (!ptr) {
     return;
   }
-  Block *block_data = (Block *)ptr - 1;
-  block_data->free = 1;
-  return;
+  Block *data = ptr - sizeof(data->header);
+  --data->header;
+  --data->footer;
 }
-
-void visualize_memory_list(void) {
-  Block *block = memory_list;
-  while (block != NULL) {
-    printf("Block addr: %p\n", block);
-    printf("Block free: %d\n", block->free);
-    printf("Block payload_size: %zu\n", block->payload_size);
-    printf("Block next block addr: %p\n", block->next);
-    block = block->next;
-  }
-}
-
-struct test {
-  int bar;
-  char foo[25];
-  long xyz;
-};
 
 int main(void) {
-  int *p = memloc(sizeof(int));
-  printf("First allocation\n");
-  visualize_memory_list();
-  printf("\n");
+  int *foo = memloc(sizeof(int));
+  char *bar = memloc(sizeof(char));
+  long long *asd = memloc(sizeof(long long));
+  char *test = memloc(sizeof(char));
+  printf("FOO %p\n", foo);
+  printf("BAR %p\n", bar);
+  printf("long %p\n", asd);
+  printf("test %p\n", test);
+  *test = 'x';
 
-  int *b = memloc(sizeof(int));
-  printf("Second allocation\n");
-  visualize_memory_list();
-  printf("\n");
-
-  freeloc(p);
-  printf("First free\n");
-  visualize_memory_list();
-  printf("\n");
-
-  freeloc(b);
-  printf("Second free\n");
-  visualize_memory_list();
-  printf("\n");
-
-  char *asd = memloc(sizeof(char));
-  printf("Third allocation\n");
-  visualize_memory_list();
-  printf("\n");
-
-  printf("Size of this struct is: %zu\n", sizeof(struct test));
-  struct test *testing_struct = memloc(sizeof(*testing_struct));
-  printf("Fourth allocation\n");
-  visualize_memory_list();
-  printf("\n");
-
-  struct test *another = memloc(sizeof(*another));
-  printf("Fifth allocation\n");
-  visualize_memory_list();
-  printf("\n");
-
+  *foo = 5;
+  *bar = 'a';
+  *asd = 0xFFFFFFFF + 1;
   return 0;
 };
