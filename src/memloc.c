@@ -30,26 +30,38 @@ void *memloc(size_t incr) {
       *block = data_size + 1;
       return block + 1;
     }
-    move = move + (sizeof(*block) + (*block & ~0x7) + sizeof(*block));
+    move = move + (sizeof(WORD) + (*block & ~0x7) + sizeof(WORD));
   }
-  WORD *payload = (WORD *)mem_brk;
-  *payload = data_size + 1;
-  mem_brk = mem_brk + (sizeof(*payload) + (*payload & ~0x7) + sizeof(*payload));
-  return payload + 1;
+  WORD *header = (WORD *)mem_brk;
+  *header = data_size + 1;
+  WORD *footer = (WORD *)(mem_brk + sizeof(WORD) + (*header & ~0x7));
+  *footer = data_size + 1;
+  mem_brk = mem_brk + (sizeof(WORD) + (*header & ~0x7) + sizeof(WORD));
+  return header + 1;
 }
 
 void freeloc(void *p) {
   WORD *block = p - sizeof(WORD);
-  WORD *next = (WORD *)((char *)block + sizeof(WORD) * 2 + (*block & ~0x7));
-  WORD *prev = (WORD *)((char *)block - sizeof(WORD) * 2 - (*block & ~0x7));
+  WORD *footer = p + (*block & ~0x7);
+  WORD *next = (WORD *)(p + (*block & ~0x7) + sizeof(WORD));
+  WORD *next_footer = (WORD *)((char *)next + sizeof(WORD) + (*next & ~0x7));
+  WORD *prev = (WORD *)(p - sizeof(WORD) * 2);
+  WORD *prev_header = (WORD *)((char *)prev - sizeof(WORD) - (*prev & ~0x7));
 
   *block -= 1;
-  if ((*next & 0x1) == 0 && (char *)next <= mem_max_addr) {
-    *block = *block + (*next & ~0x7);
-  }
+  *footer -= 1;
+  if (((*next & 0x1) == 0 && (char *)next <= mem_max_addr) &&
+      ((*prev & 0x1) == 0 && (char *)prev >= mem_start)) {
 
-  if ((*prev & 0x1) == 0 && (char *)prev >= mem_start) {
-    *prev = *prev + (*block & 0x7);
+    *prev_header =
+        *block + (*next & ~0x7) + (*prev_header & ~0x7) + sizeof(WORD) * 4;
+    *next_footer = *prev_header;
+  } else if ((*next & 0x1) == 0 && (char *)next <= mem_max_addr) {
+    *block = *block + (*next & ~0x7) + sizeof(WORD) * 2;
+    *next_footer = *block;
+  } else if ((*prev & 0x1) == 0 && (char *)prev >= mem_start) {
+    *prev_header = (*prev_header & ~0x7) + (*block & ~0x7) + sizeof(WORD) * 2;
+    *footer = *prev_header;
   }
 }
 
@@ -75,16 +87,13 @@ int main() {
   last[4] = 'x';
   last[5] = 'x';
 
-  printf("%p\n", test);
-  printf("%s\n", test);
-  printf("%p\n", next);
-  printf("%s\n", next);
-  printf("%p\n", last);
-  printf("%s\n", last);
+  char *very_last = memloc(8);
+  very_last[0] = '5';
 
-  freeloc(next);
   freeloc(test);
   freeloc(last);
+  freeloc(next);
+  freeloc(very_last);
 
   return 0;
 };
